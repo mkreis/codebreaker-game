@@ -15,8 +15,8 @@ class OnScreenKeyboard:
             ['S', 'T', 'U', 'V', 'W', 'X', 'Y'],
             ['Z', '_', '.', 'DEL', 'SPACE', 'ENTER']
         ]
-        self.normal_key_width = 30
-        self.special_key_width = 41
+        self.normal_key_width = 32
+        self.special_key_width = 43
         self.key_height = 30
         self.margin = 2
         self.start_y = 50

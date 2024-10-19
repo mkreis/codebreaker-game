@@ -3,6 +3,7 @@ from time import sleep
 from math import cos, sin, pi, radians
 from sys import implementation
 from framebuf import FrameBuffer, RGB565  # type: ignore
+from micropython import const  # type: ignore
 
 
 def color565(r, g, b):
@@ -81,15 +82,19 @@ class Display(object):
     ENABLE3G = const(0xF2)  # Enable 3 gamma control
     PUMPRC = const(0xF7)  # Pump ratio control
 
-    ROTATE = {
-        0: 0x88,
-        90: 0xE8,
-        180: 0x48,
-        270: 0x28
+    MIRROR_ROTATE = {  # MADCTL configurations for rotation and mirroring
+        (False, 0): 0x80,  # 1000 0000
+        (False, 90): 0xE0,  # 1110 0000
+        (False, 180): 0x40,  # 0100 0000
+        (False, 270): 0x20,  # 0010 0000
+        (True, 0): 0xC0,   # 1100 0000
+        (True, 90): 0x60,  # 0110 0000
+        (True, 180): 0x00,  # 0000 0000
+        (True, 270): 0xA0  # 1010 0000
     }
 
-    def __init__(self, spi, cs, dc, rst,
-                 width=240, height=320, rotation=270):
+    def __init__(self, spi, cs, dc, rst, width=240, height=320, rotation=0,
+                 mirror=False, bgr=True, gamma=True):
         """Initialize OLED.
 
         Args:
@@ -100,6 +105,9 @@ class Display(object):
             width (Optional int): Screen width (default 240)
             height (Optional int): Screen height (default 320)
             rotation (Optional int): Rotation must be 0 default, 90. 180 or 270
+            mirror (Optional bool): Mirror display (default False)
+            bgr (Optional bool): Swaps red and blue colors (default True)
+            gamma (Optional bool): Custom gamma correction (default True)
         """
         self.spi = spi
         self.cs = cs
@@ -107,10 +115,12 @@ class Display(object):
         self.rst = rst
         self.width = width
         self.height = height
-        if rotation not in self.ROTATE.keys():
-            raise RuntimeError('Rotation must be 0, 90, 180 or 270.')
+        if (mirror, rotation) not in self.MIRROR_ROTATE:
+            raise ValueError('Rotation must be 0, 90, 180 or 270.')
         else:
-            self.rotation = self.ROTATE[rotation]
+            self.rotation = self.MIRROR_ROTATE[mirror, rotation]
+            if bgr:  # Set BGR bit
+                self.rotation |= 0b00001000
 
         # Initialize GPIO pins and set implementation specific methods
         if implementation.name == 'circuitpython':
@@ -148,10 +158,13 @@ class Display(object):
         self.write_cmd(self.DFUNCTR, 0x08, 0x82, 0x27)
         self.write_cmd(self.ENABLE3G, 0x00)  # Enable 3 gamma ctrl
         self.write_cmd(self.GAMMASET, 0x01)  # Gamma curve selected
-        self.write_cmd(self.GMCTRP1, 0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E,
-                       0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00)
-        self.write_cmd(self.GMCTRN1, 0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31,
-                       0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F)
+        if gamma:  # Use custom gamma correction values
+            self.write_cmd(self.GMCTRP1, 0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08,
+                           0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09,
+                           0x00)
+            self.write_cmd(self.GMCTRN1, 0x00, 0x0E, 0x14, 0x03, 0x11, 0x07,
+                           0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36,
+                           0x0F)
         self.write_cmd(self.SLPOUT)  # Exit sleep
         sleep(.1)
         self.write_cmd(self.DISPLAY_ON)  # Display on
@@ -193,7 +206,7 @@ class Display(object):
             boards.  Smaller values allocate less memory but take longer
             to execute.  hlines must be a factor of the display height.
             For example, for a 240 pixel height, valid values for hline
-            would be 1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160.
+            would be 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 40, etc.
             Higher values may result in memory allocation errors.
         """
         w = self.width
@@ -604,18 +617,15 @@ class Display(object):
         # Confirm coordinates in boundary
         if self.is_off_grid(x, y, x + 7, y + 7):
             return
-        # Rearrange color
-        r = (color & 0xF800) >> 11
-        g = (color & 0x07E0) >> 5
-        b = (color & 0x1F)
         buf = bytearray(w * 16)
         fbuf = FrameBuffer(buf, w, h, RGB565)
         if background != 0:
-            bg_r = (background & 0xF800) >> 11
-            bg_g = (background & 0x07E0) >> 5
-            bg_b = (background & 0x1F)
-            fbuf.fill(color565(bg_b, bg_r, bg_g))
-        fbuf.text(text, 0, 0, color565(b, r, g))
+            # Swap background color bytes to correct for framebuf endianness
+            b_color = ((background & 0xFF) << 8) | ((background & 0xFF00) >> 8)
+            fbuf.fill(b_color)
+        # Swap text color bytes to correct for framebuf endianness
+        t_color = ((color & 0xFF) << 8) | ((color & 0xFF00) >> 8)
+        fbuf.text(text, 0, 0, t_color)
         if rotate == 0:
             self.block(x, y, x + w - 1, y + (h - 1), buf)
         elif rotate == 90:
@@ -897,6 +907,17 @@ class Display(object):
                        chunk_x + remainder - 1, y + h - 1,
                        buf)
 
+    def invert(self, enable=True):
+        """Enables or disables inversion of display colors.
+
+        Args:
+            enable (Optional bool): True=enable, False=disable
+        """
+        if enable:
+            self.write_cmd(self.INVON)
+        else:
+            self.write_cmd(self.INVOFF)
+
     def is_off_grid(self, xmin, ymin, xmax, ymax):
         """Check if coordinates extend past display boundaries.
 
@@ -932,7 +953,7 @@ class Display(object):
             w (int): Width of image.
             h (int): Height of image.
         Notes:
-            w x h cannot exceed 2048
+            w x h cannot exceed 2048 on boards w/o PSRAM
         """
         buf_size = w * h * 2
         with open(path, "rb") as f:
@@ -975,7 +996,6 @@ class Display(object):
         """
         if top + bottom <= self.height:
             middle = self.height - (top + bottom)
-            print(top, middle, bottom)
             self.write_cmd(self.VSCRDEF,
                            top >> 8,
                            top & 0xFF,

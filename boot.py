@@ -1,5 +1,12 @@
+# This file is executed on every boot (including wake-boot from deepsleep)
+#import esp
+#esp.osdebug(None)
+#import webrepl
+#webrepl.start()
+
 from ili9341 import Display, color565
 from xpt2046 import Touch
+from xglcd_font import XglcdFont
 from machine import idle, Pin, SPI
 import time
 
@@ -59,6 +66,7 @@ class CodeBreaker:
     GREEN = color565(0, 255, 0)
     RED = color565(255, 0, 0)
     BLUE = color565(0, 0, 255)
+    FONT = XglcdFont('fonts/Robotron13x21.c', 13, 21)
 
     def __init__(self, display, spi2):
         self.display = display
@@ -77,8 +85,8 @@ class CodeBreaker:
 
     def start_game(self):
         self.display.clear()
-        self.display.draw_text8x8(10, 10, "CodeBreaker", self.WHITE, background=self.BLUE)
-        self.display.draw_text8x8(10, 30, "Touch to start", self.GREEN)
+        self.display.draw_text(30, 10, "CodeBreaker", self.FONT, self.WHITE, background=self.BLUE)
+        self.display.draw_text(40, 40, "Touch to start", self.FONT, self.GREEN)
         
         while True:
             if self.touch_detected:
@@ -189,10 +197,111 @@ class CodeBreaker:
             return True
         return False
 
+    def run_game(self):
+        levels = [
+            self.binary_decoder,
+            self.regex_matcher,
+            self.logic_gate_puzzle,
+            self.algorithm_optimization,
+            self.cryptography_challenge
+        ]
+        for level in range(len(levels)):
+            self.current_level = level
+            level_completed = levels[level]()
+            if level_completed:
+                self.show_level_complete()
+            else:
+                self.show_level_failed()
+            if self.current_level >= len(levels) - 1:
+                break
+        self.show_game_complete()
+
+    def binary_decoder(self):
+        binary = "01001000 01100101 01101100 01101100 01101111"
+        answer = "Hello"
+        
+        self.display.clear()
+        self.display.draw_text8x8(10, 10, "Level 1: Binary Decoder", self.WHITE)
+        self.display.draw_text8x8(10, 30, "Decode: " + binary, self.GREEN)
+        
+        user_input = self.get_user_input("Your answer:")
+        if user_input.lower() == answer.lower():
+            self.secret_code += "A"
+            return True
+        return False
+
+    def regex_matcher(self):
+        pattern = "^[a-z0-9_-]{3,16}$"
+        answer = "user_123"
+        
+        self.display.clear()
+        self.display.draw_text8x8(10, 10, "Level 2: Regex Matcher", self.WHITE)
+        self.display.draw_text8x8(10, 30, "Pattern: " + pattern, self.GREEN)
+        self.display.draw_text8x8(10, 50, "Find a matching string", self.GREEN)
+        
+        user_input = self.get_user_input("Your answer:")
+        if user_input == answer:
+            self.secret_code += "B"
+            return True
+        return False
+
+    def logic_gate_puzzle(self):
+        puzzle = "A AND (B OR C)"
+        answer = "101"
+        
+        self.display.clear()
+        self.display.draw_text8x8(10, 10, "Level 3: Logic Gate", self.WHITE)
+        self.display.draw_text8x8(10, 30, puzzle, self.GREEN)
+        self.display.draw_text8x8(10, 50, "Input: 1 1 0", self.GREEN)
+        self.display.draw_text8x8(10, 70, "Output: ?", self.GREEN)
+        
+        user_input = self.get_user_input("Your answer (0/1):")
+        if user_input == answer:
+            self.secret_code += "C"
+            return True
+        return False
+
+    def algorithm_optimization(self):
+        code = "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)"
+        answer = "dynamic programming"
+        
+        self.display.clear()
+        self.display.draw_text8x8(10, 10, "Level 4: Optimization", self.WHITE)
+        self.display.draw_text8x8(10, 30, "Optimize:", self.GREEN)
+        self.display.draw_text8x8(10, 50, code, self.GREEN)
+        
+        user_input = self.get_user_input("Optimization technique:")
+        if answer in user_input.lower():
+            self.secret_code += "D"
+            return True
+        return False
+
+    def cryptography_challenge(self):
+        cipher = "Uif tfdsfu jt jo uif mbtu mfwfm"
+        answer = "The secret is in the last level"
+        
+        self.display.clear()
+        self.display.draw_text8x8(10, 10, "Level 5: Cryptography", self.WHITE)
+        self.display.draw_text8x8(10, 30, "Decrypt:", self.GREEN)
+        self.display.draw_text8x8(10, 50, cipher, self.GREEN)
+        
+        user_input = self.get_user_input("Decrypted message:")
+        if user_input.lower() == answer.lower():
+            self.secret_code += "E"
+            return True
+        return False
+
+    def check_touch(self):
+        touch_point = self.touch.get_touch()
+        if touch_point is not None:
+            self.last_touch = touch_point
+            return True
+        return False
+
     def start_game(self):
         self.display.clear()
-        self.display.draw_text8x8(10, 10, "CodeBreaker", self.WHITE, background=self.BLUE)
-        self.display.draw_text8x8(10, 30, "Touch to start", self.GREEN)
+        self.display.draw_text(30, 50, "CODE BREAKER", self.FONT, self.WHITE)
+        self.display.draw_text8x8(50, 80, "Touch to start", self.GREEN)
         
         while True:
             if self.touch_detected:
@@ -288,7 +397,7 @@ class CodeBreaker:
 
 def main():
     spi1 = SPI(1, baudrate=40000000, sck=Pin(14), mosi=Pin(13))
-    display = Display(spi1, dc=Pin(2), cs=Pin(15), rst=Pin(0))
+    display = Display(spi1, dc=Pin(2), cs=Pin(15), rst=Pin(0), width=240, height=320, rotation=270)
     
     bl_pin = Pin(21, Pin.OUT)
     bl_pin.on()
@@ -300,3 +409,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+         
+
+
